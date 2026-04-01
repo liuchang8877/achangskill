@@ -1,50 +1,105 @@
 ---
 name: mind_palace
-description: 🏛️ 1:1 还原 Claude Code 源码级的层次化记忆宫殿 (INDEX.md + Topic Files)
+description: 🏛️ 层次化记忆宫殿 — INDEX.md + Topic Files + KAIROS 自动蒸馏
 metadata:
   openclaw:
     requires:
       bins: ["rg"]
 ---
 
-# Claude Code 1:1 记忆系统 (Memory System)
+# 记忆宫殿 (Mind Palace)
 
-这是一个高级记忆管理技能,用于记录和回溯对话中的"暗物质"信息(无法从代码库中推导出的背景)。
+层次化记忆管理系统，参考 Claude Code 源码级记忆系统设计。
 
-## 1. 记忆存储结构
-所有记忆持久化在 `.openclaw/memory/` 目录下:
-- **`INDEX.md`**: 200 行以内的极简摘要索引。
-- **`topics/`**: 详细的主题信息 Markdown 文件。
+## 存储结构
 
-## 2. 判别准则 (什么是值得记忆的?)
-- **拒绝规则**: 凡是能通过 `grep`、`git log` 或读取源文件查出的事实,一律不计入记忆。
-- **包含准则**:
-    - **User**: 用户的角色、专业深度、沟通风格。
-    - **Feedback**: 习惯修正(必须记下 Why 和 How to apply)。
-    - **Project**: 外部截止日期、合规背景、不明显的架构妥协。
-    - **Reference**: 外部链接(Linear, Slack, Grafana)。
+```
+.openclaw/memory/
+├── INDEX.md          # 极简索引（≤200行）
+├── topics/           # 详细记忆文件（YAML frontmatter）
+└── raw/              # KAIROS 原始日志（append-only）
+```
 
-## 3. 使用工具流 (Step-by-Step)
-### 检索 (Retrieval)
-1. 始终优先预览 `INDEX.md`。
-2. 发现相关线索后,调用 `read_file` 读取 `topics/` 下的文件。
-3. **验证**: 使用记忆前,必须验证相关实体(文件/函数)是否在当前代码库中依然存在。
+## 判别准则
 
-### 主动记录 (Active Save)
-当用户明确要求"记住"或触发了严重反馈时:
-1. **Step 1**: 写入 `topics/主题.md`(带 YAML Frontmatter)。
-2. **Step 2**: 在 `INDEX.md` 末尾追加一行指针:`- [标题](topics/文件.md) - 简要摘要`。
+**不记**：能用 `grep`/`git log`/读源文件查到的代码事实。
 
-### 自动清理与总结 (Purge & Summarize)
-当 `INDEX.md` 接近 200 行时,主动提议合并相似话题或删除过期记忆。
+**要记**：
+- 用户偏好、纠正、反馈（记 Why + How to apply）
+- 项目状态变化、架构决策
+- 外部截止日期、合规背景
+- 说出来的信息，不是能从上下文推导的
 
-## 4. 被动捕获模式 (Passive Capture)
-除了用户明确要求"记住"之外，AI 应在每次 heartbeat 或对话结束时主动检查：
-- 是否有新的用户反馈/纠正需要记录？
-- 是否有新的项目状态变化？
-- 是否有新的偏好或规则被表达？
+## 工具流
 
-如果有，即使用户没有说"记住"，也要自动写入 `topics/` 并更新 INDEX。
+### 检索
+1. 查 `INDEX.md`
+2. 读 `topics/` 相关文件
+3. **验证**：用前确认实体是否还存在
 
-## 5. 后台提取提示词 (针对 Extraction Agent)
-请扮演提取分身，分析刚才的对话流。提取那些"令人惊讶"或"非显而易见"的信息。重点关注用户纠正你的时刻，并提炼其背后的规则。
+### 主动保存
+用户说"记住"时：
+1. 写 `topics/YYYY-MM-DD-主题.md`（带 YAML frontmatter）
+2. INDEX.md 末尾追加一行指针
+
+### 被动捕获（HEARTBEAT 触发）
+每次 heartbeat 检查是否有值得记忆的新事件，如有则**实时追加**到 `raw/YYYY-MM-DD.md`：
+
+```
+[TIMESTAMP] | TYPE | CONTENT
+TYPE: USER_FEEDBACK | USER_PREFERENCE | PROJECT_STATUS | DECISION | OTHER
+```
+
+原则：实时追加不修改，append-only 是 KAIROS 蒸馏的原材料。
+
+### 索引清理
+INDEX.md 接近 200 行时，合并或删除过期记忆。
+
+## KAIROS 自动蒸馏系统
+
+对照 Claude Code 记忆系统，补充了三个缺失功能：
+
+### 1. AI-to-AI 记忆检索
+- 用 LLM 判断当前上下文与哪些记忆最相关
+- 精度优先，最多注入 5 条，宁可少记不记错
+
+### 2. KAIROS 夜间蒸馏
+- 每天 02:00 AM Asia/Shanghai，低活跃期自动运行
+- launchd 调度 → `openclaw agent --deliver` → 飞书消息触发蒸馏
+- 读取 `raw/` 日志 → AI 蒸馏 → 写入 `topics/YYYY-MM-DD-kairos.md`
+- 蒸馏后归档 7 天前 raw log
+
+### 3. Append-only 原始日志
+- 先写 raw log，再结构化蒸馏
+- 中间层设计：原材料 → AI 蒸馏 → 结构化记忆
+- 可追溯、可审计
+
+### 调度配置
+```bash
+# launchd plist: ~/Library/LaunchAgents/com.openclaw.kairos.plist
+# 触发方式: openclaw agent --channel feishu --deliver --reply-to user:ou_xxx
+# 频率: 每天 02:00 AM Asia/Shanghai
+```
+
+### KAIROS 日志文件
+- Raw log: `memory/raw/YYYY-MM-DD.md`
+- 蒸馏输出: `memory/topics/YYYY-MM-DD-kairos.md`
+- 归档: `memory/raw/archive/`
+
+## 与 Claude Code 记忆系统的对比
+
+| 功能 | Claude Code | 本 Skill |
+|------|------------|---------|
+| 分层存储 | ✅ | ✅ |
+| 判别准则 | ✅ | ✅ |
+| AI 检索 | Sonnet 小模型 | 手动 semantic search |
+| KAIROS 夜间蒸馏 | ✅ /dream | ✅ launchd + openclaw agent |
+| Append-only 日志 | ✅ | ✅ |
+| 被动捕获 | 自动化 | HEARTBEAT 触发 |
+
+## 后台提取提示词（供 Extraction Agent / 子 Agent 使用）
+
+分析对话流，提取"令人惊讶"或"非显而易见"的信息。重点关注：
+- 用户纠正 AI 的时刻
+- 明确表达的偏好或规则
+- 推理得出的隐含规则（需注明 Why）
